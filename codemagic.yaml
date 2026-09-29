@@ -1,0 +1,17 @@
+workflows:
+  infinity-android-apk:
+    name: INFINITY Speed Test APK
+    max_build_duration: 60
+    instance_type: linux_x2
+    environment:
+      groups: []
+    scripts:
+      - name: Set Android SDK location
+        script: |
+          echo "sdk.dir=$ANDROID_SDK_ROOT" > "$CM_BUILD_DIR/local.properties"
+      - name: Build installable debug APK
+        script: |
+          gradle --version
+          gradle assembleDebug --stacktrace
+    artifacts:
+      - app/build/outputs/apk/debug/*.apk

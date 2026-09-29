@@ -1,0 +1,17 @@
+تم تجهيز المشروع للبناء على Codemagic.
+
+النتيجة:
+- APK Debug قابل للتثبيت مباشرة على الهاتف.
+- لا يحتاج سيرفر خاص.
+- اسم التطبيق INFINITY Speed Test.
+
+الخطوات:
+1) أنشئ حساباً في Codemagic.
+2) ارفع المشروع إلى GitHub أو اربطه من مستودع Git.
+3) يجب أن يكون codemagic.yaml في جذر المشروع.
+4) في Codemagic اختر المشروع ثم workflow: INFINITY Speed Test APK.
+5) Start new build.
+6) بعد انتهاء البناء نزّل ملف APK من Artifacts.
+
+هذه النسخة Debug موقعة بمفتاح debug الخاص ببيئة Android، لذلك تصلح للتثبيت والاختبار.
+للنشر على Google Play نحتاج Release signing/keystore منفصل.
