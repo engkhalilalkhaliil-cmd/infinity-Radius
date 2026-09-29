@@ -1,0 +1,192 @@
+services:
+  ollama:
+    image: ollama/ollama:latest
+    profiles: ["ai-local"]
+    restart: unless-stopped
+    volumes:
+      - ollama_data:/root/.ollama
+    ports: ["11434:11434"]
+
+  mariadb:
+    image: mariadb:11
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: radius
+      MYSQL_USER: radius
+      MYSQL_PASSWORD: ${RADIUS_DB_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+    volumes:
+      - mariadb_data:/var/lib/mysql
+      - ./db/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+      - ./db/02_enterprise.sql:/docker-entrypoint-initdb.d/02-enterprise.sql:ro
+      - ./db/03_ultimate.sql:/docker-entrypoint-initdb.d/03-ultimate.sql:ro
+      - ./db/07_global_ops.sql:/docker-entrypoint-initdb.d/07-global-ops.sql:ro
+      - ./db/04_platform_upgrade.sql:/docker-entrypoint-initdb.d/04-platform-upgrade.sql:ro
+      - ./db/05_enterprise_plus.sql:/docker-entrypoint-initdb.d/05-enterprise-plus.sql:ro
+      - ./db/06_advanced_ops.sql:/docker-entrypoint-initdb.d/06-advanced-ops.sql:ro
+      - ./db/07_global_platform.sql:/docker-entrypoint-initdb.d/07-global-platform.sql:ro
+      - ./db/08_platform_hardening.sql:/docker-entrypoint-initdb.d/08-platform-hardening.sql:ro
+      - ./db/09_innovation.sql:/docker-entrypoint-initdb.d/09-innovation.sql:ro
+      - ./db/10_telegram_ops.sql:/docker-entrypoint-initdb.d/10-telegram-ops.sql:ro
+      - ./db/11_guardian_innovation.sql:/docker-entrypoint-initdb.d/11-guardian-innovation.sql:ro
+      - ./db/12_guardian_autopilot.sql:/docker-entrypoint-initdb.d/12-guardian-autopilot.sql:ro
+      - ./db/13_network_intelligence.sql:/docker-entrypoint-initdb.d/13-network-intelligence.sql:ro
+      - ./db/14_ai_intelligence.sql:/docker-entrypoint-initdb.d/14-ai-intelligence.sql:ro
+      - ./db/15_ai_agent.sql:/docker-entrypoint-initdb.d/15-ai-agent.sql:ro
+    healthcheck:
+      test: ["CMD","healthcheck.sh","--connect","--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+  manager:
+    build: ./api
+    labels:
+      com.infinitynet.developer: "Khalil Al Khalil"
+      com.infinitynet.product: "InfinityNet ISP Ultimate"
+    restart: unless-stopped
+    environment:
+      DB_HOST: mariadb
+      DB_NAME: radius
+      DB_USER: radius
+      DB_PASSWORD: ${RADIUS_DB_PASSWORD}
+      ADMIN_TOKEN: ${ADMIN_TOKEN}
+      SESSION_SECRET: ${SESSION_SECRET}
+      GLOBAL_WORKER_INTERVAL: ${GLOBAL_WORKER_INTERVAL:-60}
+      PORTAL_SHARED_SECRET: ${PORTAL_SHARED_SECRET}
+      PLATFORM_VERSION: ${PLATFORM_VERSION:-15.0.0}
+      AI_PROVIDER: ${AI_PROVIDER:-local}
+      AI_BASE_URL: ${AI_BASE_URL:-http://ollama:11434/v1}
+      AI_API_KEY: ${AI_API_KEY:-}
+      AI_MODEL: ${AI_MODEL:-qwen2.5:7b}
+      AI_TIMEOUT: ${AI_TIMEOUT:-45}
+      TZ: ${TZ:-Europe/Amsterdam}
+    depends_on:
+      mariadb: {condition: service_healthy}
+    ports: ["8080:8080"]
+  worker:
+    build: ./api
+    restart: unless-stopped
+    command: ["python","worker.py"]
+    environment:
+      DB_HOST: mariadb
+      DB_NAME: radius
+      DB_USER: radius
+      DB_PASSWORD: ${RADIUS_DB_PASSWORD}
+      TZ: ${TZ:-Europe/Amsterdam}
+      SESSION_SECRET: ${SESSION_SECRET}
+      GLOBAL_WORKER_INTERVAL: ${GLOBAL_WORKER_INTERVAL:-60}
+      PORTAL_SHARED_SECRET: ${PORTAL_SHARED_SECRET}
+      WORKER_INTERVAL: ${WORKER_INTERVAL:-60}
+    depends_on:
+      mariadb: {condition: service_healthy}
+  global-worker:
+    build: ./api
+    restart: unless-stopped
+    command: ["python","global_worker.py"]
+    environment:
+      DB_HOST: mariadb
+      DB_NAME: radius
+      DB_USER: radius
+      DB_PASSWORD: ${RADIUS_DB_PASSWORD}
+      GLOBAL_WORKER_INTERVAL: ${GLOBAL_WORKER_INTERVAL:-60}
+    depends_on:
+      mariadb: {condition: service_healthy}
+  evolution-worker:
+    build: ./api
+    restart: unless-stopped
+    command: ["python","evolution_worker.py"]
+    environment:
+      DB_HOST: mariadb
+      DB_NAME: radius
+      DB_USER: radius
+      DB_PASSWORD: ${RADIUS_DB_PASSWORD}
+      EVOLUTION_INTERVAL: ${EVOLUTION_INTERVAL:-60}
+      TZ: ${TZ:-Europe/Amsterdam}
+    depends_on:
+      mariadb: {condition: service_healthy}
+  ai-worker:
+    build: ./api
+    restart: unless-stopped
+    command: ["python","ai_worker.py"]
+    environment:
+      DB_HOST: mariadb
+      DB_NAME: radius
+      DB_USER: radius
+      DB_PASSWORD: ${RADIUS_DB_PASSWORD}
+      AI_PROVIDER: ${AI_PROVIDER:-local}
+      AI_BASE_URL: ${AI_BASE_URL:-http://ollama:11434/v1}
+      AI_API_KEY: ${AI_API_KEY:-}
+      AI_MODEL: ${AI_MODEL:-qwen2.5:7b}
+      AI_TIMEOUT: ${AI_TIMEOUT:-45}
+      AI_AUTO_ANALYZE: ${AI_AUTO_ANALYZE:-false}
+      AI_WORKER_INTERVAL: ${AI_WORKER_INTERVAL:-120}
+    depends_on:
+      mariadb: {condition: service_healthy}
+  backup:
+    image: mariadb:11
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      DB_HOST: mariadb
+    volumes:
+      - backups:/backups
+    depends_on:
+      mariadb: {condition: service_healthy}
+    command: ["sh","-c","while true; do STAMP=$$(date +%Y%m%d-%H%M%S); mysqldump -h mariadb -u root -p$$MYSQL_ROOT_PASSWORD --single-transaction --routines --triggers radius | gzip > /backups/radius-$$STAMP.sql.gz; find /backups -type f -name 'radius-*.sql.gz' -mtime +14 -delete; sleep 86400; done"]
+  radius:
+    build:
+      context: ./freeradius
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      mariadb: {condition: service_healthy}
+    ports: ["1812:1812/udp","1813:1813/udp"]
+    environment:
+      RADIUS_DB_PASSWORD: "${RADIUS_DB_PASSWORD}"
+      RADIUS_DB_HOST: mariadb
+    volumes:
+      - ./freeradius/clients.conf:/opt/freeradius/etc/raddb/clients.conf:ro
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    restart: unless-stopped
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    depends_on:
+      - manager
+    ports: ["9090:9090"]
+  grafana:
+    image: grafana/grafana:12.2.0
+    restart: unless-stopped
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+    depends_on:
+      - prometheus
+    ports: ["3000:3000"]
+  telegram-bot:
+    build: ./api
+    restart: unless-stopped
+    command: ["python","telegram_bot.py"]
+    environment:
+      DB_HOST: mariadb
+      DB_NAME: radius
+      DB_USER: radius
+      DB_PASSWORD: ${RADIUS_DB_PASSWORD}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      TELEGRAM_ADMIN_IDS: ${TELEGRAM_ADMIN_IDS}
+      TELEGRAM_CHAT_IDS: ${TELEGRAM_CHAT_IDS:-}
+      TELEGRAM_POLL_INTERVAL: ${TELEGRAM_POLL_INTERVAL:-5}
+      AI_PROVIDER: ${AI_PROVIDER:-local}
+      AI_BASE_URL: ${AI_BASE_URL:-http://ollama:11434/v1}
+      AI_API_KEY: ${AI_API_KEY:-}
+      AI_MODEL: ${AI_MODEL:-qwen2.5:7b}
+      AI_TIMEOUT: ${AI_TIMEOUT:-45}
+      TZ: ${TZ:-Europe/Amsterdam}
+    depends_on:
+      mariadb: {condition: service_healthy}
+
+volumes:
+  mariadb_data:
+  backups:
+  grafana_data:
+  ollama_data:
